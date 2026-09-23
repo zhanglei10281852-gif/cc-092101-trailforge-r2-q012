@@ -288,6 +288,7 @@ def test_overdue_check_in_risk_and_submission_side_effects(session) -> None:
             note="Delayed by terrain",
             idempotency_key="routine-checkin",
         ),
+        now=due + timedelta(hours=1),
     )
     assert submitted.late_minutes == 45
     assert service.overdue(now=due + timedelta(hours=3)) == []

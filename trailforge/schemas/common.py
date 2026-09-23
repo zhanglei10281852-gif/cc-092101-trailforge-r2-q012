@@ -5,6 +5,8 @@ from typing import Annotated, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from trailforge.domain.time import require_utc
+
 T = TypeVar("T")
 
 PositiveId = Annotated[int, Field(gt=0)]
@@ -84,9 +86,7 @@ class DateRangeQuery(BaseModel):
 
 
 def require_aware(value: datetime) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError("datetime must include timezone information")
-    return value.astimezone(UTC)
+    return require_utc(value, field="datetime")
 
 
 def clean_text(value: str) -> str:

@@ -52,6 +52,11 @@ class DatabaseBusyError(TrailForgeError):
     code = "database_busy"
 
 
+class TimestampMigrationError(TrailForgeError):
+    status_code = 422
+    code = "timestamp_migration_failed"
+
+
 class UnauthorizedOperationError(TrailForgeError):
     status_code = 403
     code = "operation_not_allowed"

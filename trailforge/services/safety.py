@@ -5,12 +5,17 @@ from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from trailforge.database.base import utc_now
 from trailforge.domain.enums import (
     ActivityStatus,
     AuditAction,
     EmergencyStatus,
     RiskLevel,
+)
+from trailforge.domain.time import (
+    elapsed_minutes,
+    late_minutes,
+    overdue_risk_level,
+    require_utc,
 )
 from trailforge.errors import ConflictError, InvalidStateError, NotFoundError, ValidationError
 from trailforge.models.safety import (
@@ -77,7 +82,13 @@ class SafetyService(ServiceBase):
         )
         return CheckInResponse.model_validate(check_in)
 
-    def submit_check_in(self, check_in_id: int, data: CheckInSubmit) -> CheckInResponse:
+    def submit_check_in(
+        self,
+        check_in_id: int,
+        data: CheckInSubmit,
+        *,
+        now: datetime | None = None,
+    ) -> CheckInResponse:
         scope = f"safety:check-in:{check_in_id}:submit"
         prior = self.find_idempotent(scope=scope, key=data.idempotency_key, payload=data)
         if prior is not None:
@@ -85,18 +96,36 @@ class SafetyService(ServiceBase):
             if check_in is None:
                 raise ConflictError("idempotency record references missing check-in")
             return CheckInResponse.model_validate(check_in)
+        current = self.resolve_now(now)
         check_in = self.safety.get_check_in(check_in_id, for_update=True)
         if check_in is None:
             raise NotFoundError(f"ItineraryCheckIn {check_in_id} was not found")
         if check_in.checked_in_at is not None:
             raise ConflictError("check-in has already been submitted")
-        delta_seconds = (data.checked_in_at - check_in.due_at).total_seconds()
-        check_in.checked_in_at = data.checked_in_at
+        expedition = self.expeditions.get(check_in.expedition_id)
+        if expedition is None:
+            raise NotFoundError(f"Expedition {check_in.expedition_id} was not found")
+        checked_in_at = require_utc(data.checked_in_at, field="checked_in_at")
+        if checked_in_at > current:
+            raise ValidationError(
+                "checked_in_at cannot be in the future",
+                context={"checked_in_at": checked_in_at.isoformat(), "now": current.isoformat()},
+            )
+        window_start = min(expedition.meeting_at, expedition.start_at)
+        if checked_in_at < window_start or checked_in_at > expedition.end_at:
+            raise ValidationError(
+                "checked_in_at must fall within the expedition window",
+                context={
+                    "window_start": window_start.isoformat(),
+                    "window_end": expedition.end_at.isoformat(),
+                },
+            )
+        check_in.checked_in_at = checked_in_at
         check_in.latitude = data.latitude
         check_in.longitude = data.longitude
         check_in.note = data.note
         check_in.is_safe = data.is_safe
-        check_in.late_minutes = max(int(delta_seconds // 60), 0)
+        check_in.late_minutes = late_minutes(check_in.due_at, checked_in_at)
         self.session.flush()
         response = CheckInResponse.model_validate(check_in)
         self.save_idempotent(
@@ -122,15 +151,14 @@ class SafetyService(ServiceBase):
         return response
 
     def overdue(self, *, now: datetime | None = None) -> list[OverdueCheckIn]:
-        current = now or utc_now()
+        current = self.resolve_now(now)
         results: list[OverdueCheckIn] = []
         for check_in in self.safety.overdue_check_ins(current):
             expedition = self.expeditions.get(check_in.expedition_id)
             user = self.users.get(check_in.user_id)
             if expedition is None or user is None:
                 continue
-            overdue_minutes = max(int((current - check_in.due_at).total_seconds() // 60), 0)
-            risk_level = self._overdue_risk(overdue_minutes)
+            minutes = elapsed_minutes(current, check_in.due_at)
             results.append(
                 OverdueCheckIn(
                     check_in_id=check_in.id,
@@ -140,8 +168,8 @@ class SafetyService(ServiceBase):
                     display_name=user.display_name,
                     check_in_type=check_in.check_in_type,
                     due_at=check_in.due_at,
-                    overdue_minutes=overdue_minutes,
-                    risk_level=risk_level,
+                    overdue_minutes=minutes,
+                    risk_level=overdue_risk_level(minutes),
                 )
             )
         return results
@@ -252,7 +280,7 @@ class SafetyService(ServiceBase):
     def summary(self, expedition_id: int, *, now: datetime | None = None) -> SafetySummary:
         if self.expeditions.get(expedition_id) is None:
             raise NotFoundError(f"Expedition {expedition_id} was not found")
-        current = now or utc_now()
+        current = self.resolve_now(now)
         check_ins = self.safety.check_ins(expedition_id)
         incidents = self.safety.incidents(expedition_id)
         assessments = self.safety.assessments(expedition_id)
@@ -302,16 +330,6 @@ class SafetyService(ServiceBase):
             ),
             warnings=warnings,
         )
-
-    @staticmethod
-    def _overdue_risk(minutes: int) -> RiskLevel:
-        if minutes < 30:
-            return RiskLevel.LOW
-        if minutes < 120:
-            return RiskLevel.MODERATE
-        if minutes < 360:
-            return RiskLevel.HIGH
-        return RiskLevel.CRITICAL
 
     @staticmethod
     def _score_level(score: int) -> RiskLevel:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -9,8 +10,10 @@ from pydantic import BaseModel
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
+from trailforge.database.base import utc_now
 from trailforge.domain.enums import AuditAction
-from trailforge.errors import IdempotencyConflictError
+from trailforge.domain.time import canonical_text, require_utc
+from trailforge.errors import IdempotencyConflictError, ValidationError
 from trailforge.models.audit import AuditLog, IdempotencyRecord
 from trailforge.repositories.audit import IdempotencyRepository
 
@@ -27,6 +30,20 @@ SENSITIVE_FIELDS = {
 class ServiceBase:
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    @staticmethod
+    def resolve_now(now: datetime | None = None) -> datetime:
+        """Return the current instant (UTC), or validate an explicit override.
+
+        A caller-supplied ``now`` must be timezone-aware so window/overdue
+        comparisons never depend on the server's local zone.
+        """
+        if now is None:
+            return utc_now()
+        try:
+            return require_utc(now, field="now")
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
 
     def audit(
         self,
@@ -130,7 +147,9 @@ class ServiceBase:
     def _json_value(value: Any) -> Any:
         if isinstance(value, Enum):
             return value.value
-        if hasattr(value, "isoformat"):
+        if isinstance(value, datetime):
+            if value.tzinfo is not None and value.utcoffset() is not None:
+                return canonical_text(value)
             return value.isoformat()
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
