@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from trailforge.config import get_settings
@@ -11,6 +12,7 @@ from trailforge.database.migrations import (
     migration_status,
 )
 from trailforge.database.session import Database
+from trailforge.errors import TimestampMigrationError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,7 +31,22 @@ def main() -> int:
     settings = get_settings()
     database = Database(settings)
     if args.command == "init-db":
-        applied = initialize_database(database)
+        try:
+            applied = initialize_database(database)
+        except TimestampMigrationError as exc:
+            print(
+                json.dumps(
+                    {
+                        "error": exc.code,
+                        "message": exc.message,
+                        "failures": exc.failures,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                file=sys.stderr,
+            )
+            return 1
         print(json.dumps({"database": str(database.path), "applied": applied}, ensure_ascii=False))
         return 0
     if args.command == "migration-status":

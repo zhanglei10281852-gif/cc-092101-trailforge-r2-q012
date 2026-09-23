@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -8,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from trailforge.api.dependencies import get_session
 from trailforge.domain.enums import PlanStatus, TrainingType
-from trailforge.schemas.common import Page
+from trailforge.schemas.common import AwareDateTime, Page
 from trailforge.schemas.training import (
     SessionCompleteRequest,
     TrainingPlanCreate,
@@ -41,8 +40,8 @@ def list_plans(
     user_id: int | None = Query(default=None, gt=0),
     plan_status: PlanStatus | None = Query(default=None, alias="status"),
     training_type: TrainingType | None = None,
-    starts_after: datetime | None = None,
-    ends_before: datetime | None = None,
+    starts_after: AwareDateTime | None = None,
+    ends_before: AwareDateTime | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     sort: str = "start_at",
@@ -111,7 +110,7 @@ def start_session(
     session_id: int,
     session: SessionDep,
     actor_id: int = Query(gt=0),
-    started_at: datetime | None = None,
+    started_at: AwareDateTime | None = None,
 ) -> TrainingSessionResponse:
     return TrainingService(session).start_session(
         session_id, actor_id=actor_id, started_at=started_at
@@ -142,7 +141,7 @@ def skip_session(
 def training_statistics(
     user_id: int,
     session: SessionDep,
-    start_at: datetime | None = None,
-    end_at: datetime | None = None,
+    start_at: AwareDateTime | None = None,
+    end_at: AwareDateTime | None = None,
 ) -> TrainingStatistics:
     return TrainingService(session).statistics(user_id, start_at=start_at, end_at=end_at)

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.types import String, TypeDecorator
+
+from trailforge.timekeeping import parse_timestamp_text, to_utc_text, utc_now
+
+__all__ = ["Base", "UTCDateTime", "utc_now"]
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -21,22 +25,21 @@ class Base(DeclarativeBase):
 
 
 class UTCDateTime(TypeDecorator[datetime]):
+    """可逆的带时区时间列：写入归一化为 UTC 文本，读取必须带显式偏移。
+
+    时间语义约定见 trailforge.timekeeping；无时区的存量文本会在读取时
+    抛出 UnparseableTimestampError，而不是按服务器本地时区猜测。
+    """
+
     impl = String(32)
     cache_ok = True
 
     def process_bind_param(self, value: datetime | None, dialect: Any) -> str | None:
         if value is None:
             return None
-        if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("datetime must include timezone information")
-        normalized = value.astimezone(UTC)
-        return normalized.isoformat(timespec="microseconds").replace("+00:00", "Z")
+        return to_utc_text(value)
 
     def process_result_value(self, value: str | None, dialect: Any) -> datetime | None:
         if value is None:
             return None
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
-
-
-def utc_now() -> datetime:
-    return datetime.now(UTC)
+        return parse_timestamp_text(value)

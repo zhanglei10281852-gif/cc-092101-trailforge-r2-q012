@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -19,7 +18,7 @@ from trailforge.schemas.activities import (
     RegistrationResponse,
     WithdrawalRequest,
 )
-from trailforge.schemas.common import Page
+from trailforge.schemas.common import AwareDateTime, Page
 from trailforge.services.activities import ExpeditionService
 
 router = APIRouter(prefix="/expeditions", tags=["expeditions"])
@@ -39,8 +38,8 @@ def list_expeditions(
     participant_id: int | None = Query(default=None, gt=0),
     expedition_status: ActivityStatus | None = Query(default=None, alias="status"),
     risk_level: RiskLevel | None = None,
-    starts_after: datetime | None = None,
-    starts_before: datetime | None = None,
+    starts_after: AwareDateTime | None = None,
+    starts_before: AwareDateTime | None = None,
     has_capacity: bool | None = None,
     search: str | None = None,
     page: int = Query(default=1, ge=1),

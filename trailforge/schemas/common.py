@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated, Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 T = TypeVar("T")
 
@@ -87,6 +87,11 @@ def require_aware(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("datetime must include timezone information")
     return value.astimezone(UTC)
+
+
+#: 查询参数用的带时区时刻类型：与请求体同一套校验语义，
+#: 无时区 → 422，带偏移 → 归一化为 UTC。
+AwareDateTime = Annotated[datetime, AfterValidator(require_aware)]
 
 
 def clean_text(value: str) -> str:

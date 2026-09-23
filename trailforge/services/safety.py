@@ -5,13 +5,13 @@ from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from trailforge.database.base import utc_now
 from trailforge.domain.enums import (
     ActivityStatus,
     AuditAction,
     EmergencyStatus,
     RiskLevel,
 )
+from trailforge.domain.risk import overdue_risk_level, score_risk_level
 from trailforge.errors import ConflictError, InvalidStateError, NotFoundError, ValidationError
 from trailforge.models.safety import (
     EmergencyIncident,
@@ -38,6 +38,7 @@ from trailforge.schemas.safety import (
     WeatherSnapshotResponse,
 )
 from trailforge.services.base import ServiceBase
+from trailforge.timekeeping import resolve_now, whole_minutes_late
 
 
 class SafetyService(ServiceBase):
@@ -90,13 +91,13 @@ class SafetyService(ServiceBase):
             raise NotFoundError(f"ItineraryCheckIn {check_in_id} was not found")
         if check_in.checked_in_at is not None:
             raise ConflictError("check-in has already been submitted")
-        delta_seconds = (data.checked_in_at - check_in.due_at).total_seconds()
+        delta_seconds = data.checked_in_at - check_in.due_at
         check_in.checked_in_at = data.checked_in_at
         check_in.latitude = data.latitude
         check_in.longitude = data.longitude
         check_in.note = data.note
         check_in.is_safe = data.is_safe
-        check_in.late_minutes = max(int(delta_seconds // 60), 0)
+        check_in.late_minutes = whole_minutes_late(delta_seconds)
         self.session.flush()
         response = CheckInResponse.model_validate(check_in)
         self.save_idempotent(
@@ -122,15 +123,15 @@ class SafetyService(ServiceBase):
         return response
 
     def overdue(self, *, now: datetime | None = None) -> list[OverdueCheckIn]:
-        current = now or utc_now()
+        current = resolve_now(now)
         results: list[OverdueCheckIn] = []
         for check_in in self.safety.overdue_check_ins(current):
             expedition = self.expeditions.get(check_in.expedition_id)
             user = self.users.get(check_in.user_id)
             if expedition is None or user is None:
                 continue
-            overdue_minutes = max(int((current - check_in.due_at).total_seconds() // 60), 0)
-            risk_level = self._overdue_risk(overdue_minutes)
+            overdue_minutes = whole_minutes_late(current - check_in.due_at)
+            risk_level = overdue_risk_level(overdue_minutes)
             results.append(
                 OverdueCheckIn(
                     check_in_id=check_in.id,
@@ -215,7 +216,7 @@ class SafetyService(ServiceBase):
             raise NotFoundError(f"Expedition {data.expedition_id} was not found")
         self.users.require(data.assessor_id)
         score = data.likelihood * data.impact
-        level = self._score_level(score)
+        level = score_risk_level(score)
         assessment = RiskAssessment(
             **data.model_dump(),
             score=score,
@@ -252,7 +253,7 @@ class SafetyService(ServiceBase):
     def summary(self, expedition_id: int, *, now: datetime | None = None) -> SafetySummary:
         if self.expeditions.get(expedition_id) is None:
             raise NotFoundError(f"Expedition {expedition_id} was not found")
-        current = now or utc_now()
+        current = resolve_now(now)
         check_ins = self.safety.check_ins(expedition_id)
         incidents = self.safety.incidents(expedition_id)
         assessments = self.safety.assessments(expedition_id)
@@ -302,23 +303,3 @@ class SafetyService(ServiceBase):
             ),
             warnings=warnings,
         )
-
-    @staticmethod
-    def _overdue_risk(minutes: int) -> RiskLevel:
-        if minutes < 30:
-            return RiskLevel.LOW
-        if minutes < 120:
-            return RiskLevel.MODERATE
-        if minutes < 360:
-            return RiskLevel.HIGH
-        return RiskLevel.CRITICAL
-
-    @staticmethod
-    def _score_level(score: int) -> RiskLevel:
-        if score <= 4:
-            return RiskLevel.LOW
-        if score <= 9:
-            return RiskLevel.MODERATE
-        if score <= 16:
-            return RiskLevel.HIGH
-        return RiskLevel.CRITICAL

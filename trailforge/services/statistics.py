@@ -4,7 +4,6 @@ from datetime import datetime
 
 from sqlalchemy import func, select
 
-from trailforge.database.base import utc_now
 from trailforge.domain.enums import ActivityStatus, EmergencyStatus, LoanStatus, PlanStatus
 from trailforge.models.activities import Expedition, ExpeditionRegistration
 from trailforge.models.gear import GearCatalog, GearInventory, GearLoan
@@ -17,11 +16,12 @@ from trailforge.schemas.audit import DashboardStatistics
 from trailforge.schemas.gear import GearStatistics
 from trailforge.schemas.safety import RiskStatistics
 from trailforge.services.base import ServiceBase
+from trailforge.timekeeping import resolve_now
 
 
 class StatisticsService(ServiceBase):
     def dashboard(self, *, now: datetime | None = None) -> DashboardStatistics:
-        current = now or utc_now()
+        current = resolve_now(now)
         active_users = self._count(select(func.count()).where(User.is_active.is_(True)))
         published_routes = self._count(
             select(func.count()).where(TrailRoute.is_published.is_(True))
@@ -118,7 +118,7 @@ class StatisticsService(ServiceBase):
         )
 
     def gear(self, *, now: datetime | None = None) -> GearStatistics:
-        current = now or utc_now()
+        current = resolve_now(now)
         inventories = list(self.session.scalars(select(GearInventory)))
         loans = list(self.session.scalars(select(GearLoan)))
         active = [item for item in loans if item.status in {LoanStatus.ACTIVE, LoanStatus.OVERDUE}]
@@ -151,7 +151,7 @@ class StatisticsService(ServiceBase):
         )
 
     def risks(self, *, now: datetime | None = None) -> RiskStatistics:
-        current = now or utc_now()
+        current = resolve_now(now)
         incidents = list(self.session.scalars(select(EmergencyIncident)))
         assessments = list(self.session.scalars(select(RiskAssessment)))
         check_ins = list(self.session.scalars(select(ItineraryCheckIn)))

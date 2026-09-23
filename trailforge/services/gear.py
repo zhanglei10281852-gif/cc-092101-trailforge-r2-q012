@@ -43,6 +43,7 @@ from trailforge.schemas.gear import (
     MissingGearReport,
 )
 from trailforge.services.base import ServiceBase
+from trailforge.timekeeping import resolve_now
 
 
 class GearService(ServiceBase):
@@ -413,7 +414,7 @@ class GearService(ServiceBase):
         )
 
     def mark_overdue_loans(self, now: datetime | None = None) -> int:
-        current = now or utc_now()
+        current = resolve_now(now)
         changed = 0
         for loan in self.gear.list_loans(status=LoanStatus.ACTIVE):
             if loan.due_at < current:

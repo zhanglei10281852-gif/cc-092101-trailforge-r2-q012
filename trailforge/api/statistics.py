@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -10,7 +9,7 @@ from trailforge.api.dependencies import get_session
 from trailforge.repositories.audit import AuditRepository
 from trailforge.schemas.activities import ActivityStatistics
 from trailforge.schemas.audit import AuditFilter, AuditLogResponse, DashboardStatistics
-from trailforge.schemas.common import Page
+from trailforge.schemas.common import AwareDateTime, Page
 from trailforge.schemas.gear import GearStatistics
 from trailforge.schemas.safety import RiskStatistics
 from trailforge.services.statistics import StatisticsService
@@ -22,7 +21,7 @@ SessionDep = Annotated[Session, Depends(get_session)]
 @router.get("/statistics/dashboard", response_model=DashboardStatistics)
 def dashboard_statistics(
     session: SessionDep,
-    now: datetime | None = None,
+    now: AwareDateTime | None = None,
 ) -> DashboardStatistics:
     return StatisticsService(session).dashboard(now=now)
 
@@ -38,7 +37,7 @@ def activity_statistics(
 @router.get("/statistics/gear", response_model=GearStatistics)
 def gear_statistics(
     session: SessionDep,
-    now: datetime | None = None,
+    now: AwareDateTime | None = None,
 ) -> GearStatistics:
     return StatisticsService(session).gear(now=now)
 
@@ -46,7 +45,7 @@ def gear_statistics(
 @router.get("/statistics/risks", response_model=RiskStatistics)
 def risk_statistics(
     session: SessionDep,
-    now: datetime | None = None,
+    now: AwareDateTime | None = None,
 ) -> RiskStatistics:
     return StatisticsService(session).risks(now=now)
 
@@ -57,8 +56,8 @@ def list_audit_logs(
     actor_id: int | None = Query(default=None, gt=0),
     entity_type: str | None = None,
     entity_id: int | None = Query(default=None, gt=0),
-    occurred_after: datetime | None = None,
-    occurred_before: datetime | None = None,
+    occurred_after: AwareDateTime | None = None,
+    occurred_before: AwareDateTime | None = None,
     correlation_id: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),

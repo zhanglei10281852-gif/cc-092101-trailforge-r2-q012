@@ -52,6 +52,32 @@ class DatabaseBusyError(TrailForgeError):
     code = "database_busy"
 
 
+class TimestampMigrationError(TrailForgeError):
+    """存量时间文本无法安全规范化时由迁移抛出。
+
+    context["failures"] 逐行列出 table/column/rowid/value/reason，
+    迁移整体回滚，修复数据后可安全重跑。
+    """
+
+    status_code = 500
+    code = "timestamp_migration_failed"
+
+    def __init__(self, failures: list[dict[str, Any]]) -> None:
+        self.failures = failures
+        preview = "; ".join(
+            f"{item['table']}.{item['column']} rowid={item['rowid']} "
+            f"value={item['value']!r} ({item['reason']})"
+            for item in failures[:5]
+        )
+        super().__init__(
+            f"{len(failures)} stored timestamp value(s) cannot be interpreted "
+            f"safely: {preview}. Add an explicit UTC offset to each value "
+            "(e.g. suffix 'Z') or correct it, then re-run "
+            "'python -m trailforge.cli init-db'.",
+            context={"failures": failures},
+        )
+
+
 class UnauthorizedOperationError(TrailForgeError):
     status_code = 403
     code = "operation_not_allowed"

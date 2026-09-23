@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from trailforge.api.dependencies import get_session
+from trailforge.schemas.common import AwareDateTime
 from trailforge.schemas.safety import (
     CheckInResponse,
     CheckInScheduleCreate,
@@ -53,7 +53,7 @@ def submit_check_in(
 @router.get("/check-ins/overdue", response_model=list[OverdueCheckIn])
 def overdue_check_ins(
     session: SessionDep,
-    now: datetime | None = None,
+    now: AwareDateTime | None = None,
 ) -> list[OverdueCheckIn]:
     return SafetyService(session).overdue(now=now)
 
@@ -107,6 +107,6 @@ def add_weather_snapshot(
 def safety_summary(
     expedition_id: int,
     session: SessionDep,
-    now: datetime | None = None,
+    now: AwareDateTime | None = None,
 ) -> SafetySummary:
     return SafetyService(session).summary(expedition_id, now=now)
